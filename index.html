@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>The Backrooms: Online Survival</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Courier New', Courier, monospace; user-select: none; touch-action: none; }
+        #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
+        
+        /* UI Overlay */
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none; }
+        
+        .vhs-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 6; pointer-events: none;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%);
+            background-size: 100% 4px;
+            box-shadow: inset 0 0 100px rgba(0,0,0,0.8);
+            mix-blend-mode: overlay;
+        }
+        
+        #damage-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 7; pointer-events: none;
+            background: radial-gradient(circle, transparent 50%, rgba(255, 0, 0, 0.6) 100%);
+            opacity: 0; transition: opacity 0.2s;
+        }
+
+        #cat-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 8; pointer-events: none;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500"><path d="M150,150 Q200,250 100,400 M350,150 Q300,250 400,400" stroke="black" stroke-width="20" fill="none"/><circle cx="180" cy="180" r="10" fill="red"/><circle cx="320" cy="180" r="10" fill="red"/></svg>'); 
+            background-size: contain; background-repeat: no-repeat; background-position: center;
+            display: none; opacity: 0.8;
+            animation: shake 0.1s infinite;
+        }
+        @keyframes shake { 0% { transform: translate(1px, 1px) rotate(0deg); } 100% { transform: translate(-1px, -2px) rotate(-1deg); } }
+        @keyframes pulse-red { 0% { opacity: 0.3; } 50% { opacity: 0.7; } 100% { opacity: 0.3; } }
+
+        #start-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            color: #dac43c; z-index: 20; pointer-events: auto;
+        }
+        
+        button {
+            background: transparent; color: #dac43c; border: 2px solid #dac43c;
+            padding: 10px 20px; font-size: 1.2em; margin: 5px; cursor: pointer;
+            font-family: inherit; text-transform: uppercase; transition: 0.2s;
+        }
+        button:hover { background: #dac43c; color: #000; }
+        button:disabled { border-color: #555; color: #555; cursor: not-allowed; opacity: 0.5; }
+
+        #status-msg { margin-top: 10px; color: #888; font-size: 0.9em; animation: pulse 2s infinite; }
+
+        /* HUD */
+        #hud { position: absolute; bottom: 20px; left: 20px; color: white; display: none; text-shadow: 1px 1px 2px black; }
+        .bar-container { margin-bottom: 8px; }
+        .bar-label { font-size: 10px; margin-bottom: 2px; font-weight: bold; }
+        
+        .progress-bar { width: 200px; height: 8px; background: #222; border: 1px solid #444; }
+        #health-fill { width: 100%; height: 100%; background: #ff3333; transition: width 0.2s; }
+        #sanity-fill { width: 100%; height: 100%; background: #3388ff; transition: width 0.2s; }
+        #battery-fill { width: 100%; height: 100%; background: #ffcc00; transition: width 0.2s; }
+        #stamina-fill { width: 100%; height: 100%; background: #ffffff; transition: width 0.1s; }
+        
+        #coin-counter { margin-top: 10px; font-size: 16px; color: gold; }
+
+        #player-count { position: absolute; top: 20px; right: 20px; color: #00ff00; font-weight: bold; text-shadow: 0 0 5px #00ff00; display: none; }
+        #interact-prompt { position: absolute; top: 60%; left: 50%; transform: translate(-50%, -50%); color: white; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; display: none; }
+        
+        #item-ui { position: absolute; bottom: 20px; right: 20px; text-align: right; color: #dac43c; font-size: 20px; text-shadow: 1px 1px 2px black; display: none; }
+        #radar-ui { position: absolute; top: 80px; left: 20px; font-size: 16px; color: #00ff00; font-family: monospace; display: none; background: rgba(0,20,0,0.5); padding: 5px; border: 1px solid #005500; }
+        
+        #notification-area {
+            position: absolute; bottom: 50%; left: 50%; transform: translate(-50%, 50%);
+            font-size: 20px; color: #44ff44; background: rgba(0,0,0,0.8);
+            padding: 15px 30px; border: 1px solid #44ff44; display: none;
+            text-transform: uppercase; z-index: 20; pointer-events: none; text-align: center;
+        }
+
+        #shop-screen, #keypad-screen {
+            display: none; background: rgba(10, 10, 20, 0.95); padding: 20px;
+            border: 4px solid #4466ff; color: #fff; pointer-events: auto;
+            min-width: 320px; box-shadow: 0 0 20px #4466ff;
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            z-index: 30;
+        }
+        #shop-screen h2, #keypad-screen h2 { color: #4466ff; margin-top: 0; text-transform: uppercase; letter-spacing: 3px; border-bottom: 1px solid #4466ff; padding-bottom: 10px; text-align: center; }
+        .shop-item { display: flex; justify-content: space-between; align-items: center; margin: 10px 0; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid #333; }
+        .close-shop-btn { margin-top: 20px; background: transparent; border: 1px solid #fff; color: #fff; padding: 10px 20px; cursor: pointer; width: 100%; }
+
+        /* Keypad Styles */
+        #keypad-display { background: #000; color: #0f0; font-size: 30px; padding: 10px; margin-bottom: 10px; text-align: center; letter-spacing: 5px; font-family: monospace; }
+        #keypad-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .key-btn { background: #333; color: white; border: 1px solid #555; padding: 15px; font-size: 20px; cursor: pointer; }
+        .key-btn:hover { background: #555; }
+        .key-enter { grid-column: span 3; background: #003300; color: #0f0; }
+
+        #game-over-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(50, 0, 0, 0.9);
+            display: none; flex-direction: column; justify-content: center; align-items: center;
+            color: #ff0000; z-index: 30; pointer-events: auto;
+        }
+
+        #mobile-controls { display: none; pointer-events: none; width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 15; }
+        .touch-zone { pointer-events: auto; position: absolute; }
+        #joystick-zone { bottom: 50px; left: 50px; width: 150px; height: 150px; background: rgba(255,255,255,0.1); border-radius: 50%; border: 2px solid rgba(255,255,255,0.3); }
+        #joystick-knob { position: absolute; top: 50%; left: 50%; width: 60px; height: 60px; background: rgba(218, 196, 60, 0.5); border-radius: 50%; transform: translate(-50%, -50%); }
+        #look-zone { top: 0; right: 0; width: 50%; height: 100%; }
+        .action-btn { position: absolute; width: 70px; height: 70px; background: rgba(255,255,255,0.2); border: 2px solid rgba(255,255,255,0.5); border-radius: 50%; color: white; display: flex; justify-content: center; align-items: center; font-size: 24px; pointer-events: auto; user-select: none; }
+        #btn-jump { bottom: 60px; right: 40px; }
+        #btn-swap { bottom: 150px; right: 40px; font-size: 30px; }
+        #btn-interact { bottom: 60px; right: 120px; }
+        
+        #level-transition {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: black; z-index: 25; display: flex; justify-content: center; align-items: center;
+            color: white; font-size: 3em; opacity: 0; pointer-events: none; transition: opacity 2s;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+    <div id="ui-layer">
+        <div class="vhs-overlay"></div>
+        <div id="damage-overlay"></div>
+        <div id="cat-overlay"></div>
+        
+        <div id="player-count">ONLINE: 1</div>
+        <div id="interact-prompt">[E] / [✋] 開啟</div>
+        <div id="radar-ui">RADAR: --</div>
+        <div id="notification-area"></div>
+
+        <div id="hud">
+            <div class="bar-container"><div class="bar-label">HP (生命)</div><div class="progress-bar"><div id="health-fill"></div></div></div>
+            <div class="bar-container"><div class="bar-label">SANITY (意識)</div><div class="progress-bar"><div id="sanity-fill"></div></div></div>
+            <div class="bar-container"><div class="bar-label">BATTERY (電量)</div><div class="progress-bar"><div id="battery-fill"></div></div></div>
+            <div class="bar-container"><div class="bar-label">STAMINA (體力)</div><div class="progress-bar"><div id="stamina-fill"></div></div></div>
+            <div id="coin-counter">COINS: 0</div>
+        </div>
+        
+        <div id="item-ui">
+            <div id="current-item-name">FLASHLIGHT</div>
+            <div id="item-count" style="font-size:0.8em; color:#aaa;"></div>
+        </div>
+
+        <div id="start-screen">
+            <h1 style="font-size: 3em; margin-bottom: 0; color: #dac43c;">THE BACKROOMS</h1>
+            <p style="letter-spacing: 2px; margin-bottom: 20px; color: #fff;">生存模式 - 意識危機</p>
+            <button id="join-btn" disabled>連線中...</button>
+            <button id="load-btn" style="margin-top: 10px;">讀取存檔 (LOAD)</button>
+            <div id="status-msg">正在初始化...</div>
+        </div>
+
+        <div id="game-over-screen">
+            <h1 id="death-reason">YOU DIED</h1>
+            <p>你的意識消散在後室之中...</p>
+            <button id="restart-btn" class="menu-btn">重新開始</button>
+        </div>
+
+        <div id="shop-screen">
+            <h2>VENDING MACHINE</h2>
+            <div id="shop-items-container"></div>
+            <button class="close-shop-btn" id="close-shop">離開</button>
+        </div>
+
+        <div id="keypad-screen">
+            <h2>SECURITY LOCK</h2>
+            <div id="keypad-display">----</div>
+            <div id="keypad-grid">
+                <div class="key-btn">1</div><div class="key-btn">2</div><div class="key-btn">3</div>
+                <div class="key-btn">4</div><div class="key-btn">5</div><div class="key-btn">6</div>
+                <div class="key-btn">7</div><div class="key-btn">8</div><div class="key-btn">9</div>
+                <div class="key-btn">C</div><div class="key-btn">0</div><div class="key-btn key-enter">ENTER</div>
+            </div>
+            <button class="close-shop-btn" id="close-keypad">取消</button>
+        </div>
+
+        <div id="mobile-controls">
+            <div id="joystick-zone" class="touch-zone"><div id="joystick-knob"></div></div>
+            <div id="look-zone" class="touch-zone"></div>
+            <div id="btn-jump" class="action-btn">⬆</div>
+            <div id="btn-swap" class="action-btn">🎒</div>
+            <div id="btn-interact" class="action-btn">✋</div>
+        </div>
+        
+        <div id="level-transition">LEVEL LOADING...</div>
+    </div>
+
+    <!-- Modules -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+        import { getFirestore, collection, doc, setDoc, onSnapshot, deleteDoc, serverTimestamp, query, where, getDoc } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+        import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js';
+
+        // --- Init ---
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        
+        let localUser = null;
+        let unsubscribePlayers = null;
+        const remotePlayers = {}; 
+
+        const CONFIG = {
+            MAP_SIZE: 60,
+            CELL_SIZE: 5,
+            WALL_HEIGHT: 6,
+            MOVE_SPEED: 5.0,
+            RUN_SPEED: 8.0,
+            PLAYER_HEIGHT: 1.7,
+            MAX_HP: 150,
+            DAMAGE: 5,
+            MAX_BATTERY: 100,
+            MAX_SANITY: 100
+        };
+
+        let camera, scene, renderer;
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        let isMobile = false, joystickVector = { x: 0, y: 0 };
+        let canJump = false, velocity = new THREE.Vector3(), direction = new THREE.Vector3();
+        let stamina = 100, hp = CONFIG.MAX_HP, battery = 100, sanity = 100;
+        let isLightOn = true;
+        let mapData = [], walls = [], entities = [];
+        let prevTime = performance.now(), controlsLocked = false;
+        
+        let score = 0, currentLevel = 0, coins = [], exitDoor = null, vendingGroup = null;
+        let lastDamageTime = 0, isGameOver = false, isShopOpen = false, isKeypadOpen = false;
+        let inventory = ['flashlight'], itemCounts = { 'water': 0, 'battery': 0 }, currentItemIdx = 0;
+        let handGroup, radarTexture, radarContext;
+        let detectionRadius = 15;
+        
+        // Puzzle
+        let exitCode = "0000";
+        let keypadInput = "";
+
+        // UI
+        const hpBar = document.getElementById('health-fill');
+        const sanityBar = document.getElementById('sanity-fill');
+        const batteryBar = document.getElementById('battery-fill');
+        const damageOverlay = document.getElementById('damage-overlay');
+        const catOverlay = document.getElementById('cat-overlay');
+        const notificationArea = document.getElementById('notification-area');
+        const radarUi = document.getElementById('radar-ui');
+        const coinCounter = document.getElementById('coin-counter');
+        const itemUiName = document.getElementById('current-item-name');
+        const itemUiCount = document.getElementById('item-count');
+        const keypadDisplay = document.getElementById('keypad-display');
+        const deathReason = document.getElementById('death-reason');
+
+        function showNotification(msg) {
+            notificationArea.innerText = msg;
+            notificationArea.style.display = 'block';
+            setTimeout(() => { notificationArea.style.display = 'none'; }, 3000);
+        }
+
+        // Auth
+        const joinBtn = document.getElementById('join-btn');
+        const loadBtn = document.getElementById('load-btn');
+        const statusMsg = document.getElementById('status-msg');
+        const initAuth = async () => {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token);
+                else await signInAnonymously(auth);
+            } catch (error) { statusMsg.innerText = "連線失敗"; }
+        };
+        onAuthStateChanged(auth, (user) => {
+            if (user) { localUser = user; joinBtn.innerText = "加入遊戲 (JOIN)"; joinBtn.disabled = false; statusMsg.innerText = "已連線。"; }
+        });
+        initAuth();
+
+        joinBtn.addEventListener('click', () => {
+            if (!localUser) return;
+            startGame();
+            initGame();
+        });
+
+        loadBtn.addEventListener('click', () => {
+             if (!localUser) return;
+             startGame();
+             initGame();
+             loadGame();
+        });
+
+        function startGame() {
+            document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('hud').style.display = 'block';
+            document.getElementById('item-ui').style.display = 'block';
+            document.getElementById('player-count').style.display = 'block';
+            if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+                isMobile = true; document.getElementById('mobile-controls').style.display = 'block'; setupMobileControls();
+            } else setupPCControls();
+        }
+
+        // --- Game ---
+        function initGame() {
+            const container = document.getElementById('canvas-container');
+            // Reset existing
+            container.innerHTML = ''; 
+            
+            scene = new THREE.Scene(); scene.background = new THREE.Color(0x000000); scene.fog = new THREE.FogExp2(0x1a1810, 0.05);
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: false });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
+
+            handGroup = new THREE.Group(); handGroup.position.set(0.3, -0.4, -0.5); camera.add(handGroup); scene.add(camera);
+            
+            generateLevel(0);
+            updateHandItem();
+            startNetworking();
+            animate();
+            camera.position.set(2 * CONFIG.CELL_SIZE, CONFIG.PLAYER_HEIGHT, 2 * CONFIG.CELL_SIZE);
+        }
+
+        // Texture Helper
+        function createTexture(type, level) {
+            const canvas = document.createElement('canvas'); canvas.width = 64; canvas.height = 64; const ctx = canvas.getContext('2d');
+            if(type === 'wall') {
+                if(level===0) { ctx.fillStyle='#cfb968'; ctx.fillRect(0,0,64,64); ctx.fillStyle='#b8a356'; }
+                else if(level===1) { ctx.fillStyle='#555'; ctx.fillRect(0,0,64,64); ctx.fillStyle='#444'; }
+                else { ctx.fillStyle='#6d4c41'; ctx.fillRect(0,0,64,64); ctx.fillStyle='#5d4037'; }
+            } else ctx.fillStyle = '#8a8264'; ctx.fillRect(0,0,64,64); ctx.fillStyle='#777';
+            for(let i=0;i<50;i++) ctx.fillRect(Math.random()*64,Math.random()*64,2,2);
+            const tex = new THREE.CanvasTexture(canvas); tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping; return tex;
+        }
+
+        function generateLevel(levelIdx) {
+            // Clean
+            entities.forEach(e => scene.remove(e.mesh));
+            entities = [];
+            
+            const keepList = new Set([camera, camera.userData.flashlight, camera.userData.flashlight?.target, handGroup, ...Object.values(remotePlayers)]);
+            for (let i = scene.children.length - 1; i >= 0; i--) {
+                const obj = scene.children[i];
+                if (!keepList.has(obj) && !obj.isPlayerRemote) scene.remove(obj);
+            }
+            walls = []; coins = []; vendingGroup = null; exitDoor = null;
+
+            if (levelIdx === 0) scene.fog = new THREE.FogExp2(0x1a1810, 0.04); 
+            else if (levelIdx === 1) scene.fog = new THREE.FogExp2(0x111111, 0.05); 
+            else scene.fog = new THREE.FogExp2(0x050510, 0.03); 
+
+            const wallMat = new THREE.MeshLambertMaterial({ map: createTexture('wall', levelIdx) });
+            const floorMat = new THREE.MeshLambertMaterial({ color: 0x8a8264 });
+            const ceilMat = new THREE.MeshLambertMaterial({ color: 0xdcdcdc });
+            const mapSize = CONFIG.MAP_SIZE;
+
+            exitCode = Math.floor(1000 + Math.random() * 9000).toString();
+
+            for (let x = 0; x < mapSize; x++) {
+                mapData[x] = [];
+                for (let z = 0; z < mapSize; z++) {
+                    const posX = x * CONFIG.CELL_SIZE; const posZ = z * CONFIG.CELL_SIZE;
+                    const f = new THREE.Mesh(new THREE.PlaneGeometry(CONFIG.CELL_SIZE, CONFIG.CELL_SIZE), floorMat);
+                    f.rotation.x = -Math.PI/2; f.position.set(posX, 0, posZ); scene.add(f);
+                    const c = new THREE.Mesh(new THREE.PlaneGeometry(CONFIG.CELL_SIZE, CONFIG.CELL_SIZE), ceilMat);
+                    c.rotation.x = Math.PI/2; c.position.set(posX, CONFIG.WALL_HEIGHT, posZ); scene.add(c);
+
+                    if (x===0 || x===mapSize-1 || z===0 || z===mapSize-1 || Math.random()<0.2) {
+                        if (x>1 && x<5 && z>1 && z<5) { mapData[x][z]=0; continue; }
+                        if (x===5 && z===5) { mapData[x][z]=0; continue; } 
+                        mapData[x][z] = 1;
+                        const w = new THREE.Mesh(new THREE.BoxGeometry(CONFIG.CELL_SIZE, CONFIG.WALL_HEIGHT, CONFIG.CELL_SIZE), wallMat);
+                        w.position.set(posX, CONFIG.WALL_HEIGHT/2, posZ);
+                        scene.add(w);
+                        walls.push(new THREE.Box3().setFromObject(w));
+                        if (Math.random() < 0.02) createClue(w.position, exitCode);
+                    } else {
+                        mapData[x][z] = 0;
+                        if(Math.random() < 0.1) {
+                            const cg = new THREE.SphereGeometry(0.3,8,8);
+                            const cm = new THREE.MeshBasicMaterial({color:0xffd700, wireframe:true});
+                            const co = new THREE.Mesh(cg, cm);
+                            co.position.set(posX, 1.5, posZ); scene.add(co); coins.push(co);
+                        }
+                    }
+                }
+            }
+
+            const amb = new THREE.AmbientLight(0xaa8833, 0.3); scene.add(amb);
+            
+            // Exit
+            let placed=false;
+            const exitMat = new THREE.MeshLambertMaterial({color:0xff0000, emissive:0xaa0000});
+            while(!placed) {
+                const ex = Math.floor(Math.random()*(mapSize-2)+1); const ez = Math.floor(Math.random()*(mapSize-2)+1);
+                const distFromSpawn = Math.sqrt(Math.pow(ex-2, 2) + Math.pow(ez-2, 2));
+                if(mapData[ex][ez]===0 && distFromSpawn > 10) {
+                    exitDoor = new THREE.Mesh(new THREE.BoxGeometry(3,4,0.5), exitMat);
+                    exitDoor.position.set(ex*CONFIG.CELL_SIZE, 2, ez*CONFIG.CELL_SIZE);
+                    const el = new THREE.PointLight(0xff0000, 1, 10); el.position.copy(exitDoor.position);
+                    scene.add(el); scene.add(exitDoor); placed=true;
+                }
+            }
+
+            // Shop
+            if(levelIdx < 2) {
+                vendingGroup = new THREE.Group(); vendingGroup.position.set(5*CONFIG.CELL_SIZE, 0, 5*CONFIG.CELL_SIZE); 
+                const b = new THREE.Mesh(new THREE.BoxGeometry(2.5,3.8,1.8), new THREE.MeshPhongMaterial({color:0x112255}));
+                b.position.y=1.9; vendingGroup.add(b);
+                const l = new THREE.PointLight(0x4466ff, 1, 10); l.position.set(0, 2.5, 1); vendingGroup.add(l);
+                scene.add(vendingGroup);
+            }
+
+            // --- ENTITIES ---
+            spawnEntity('smiler');
+            spawnEntity('slasher');
+            spawnEntity('cat');
+            spawnEntity('octopus');
+        }
+
+        function createClue(pos, code) {
+            const cvs = document.createElement('canvas'); cvs.width=128; cvs.height=64;
+            const x = cvs.getContext('2d'); x.fillStyle='red'; x.font='bold 40px Arial'; x.fillText(code, 10, 50);
+            const tex = new THREE.CanvasTexture(cvs);
+            const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 1), new THREE.MeshBasicMaterial({map:tex, transparent:true}));
+            plane.position.copy(pos); plane.position.z += 2.6; // Slightly offset from wall
+            plane.position.y = 2;
+            scene.add(plane);
+        }
+
+        function spawnEntity(type) {
+            let x, z;
+            do {
+                x = Math.floor(Math.random() * CONFIG.MAP_SIZE);
+                z = Math.floor(Math.random() * CONFIG.MAP_SIZE);
+            } while (mapData[x] && mapData[x][z] === 1 || (x < 10 && z < 10));
+
+            const px = x * CONFIG.CELL_SIZE;
+            const pz = z * CONFIG.CELL_SIZE;
+
+            let mesh, speed;
+            if (type === 'smiler') {
+                const g = new THREE.CylinderGeometry(0.4, 0.4, 1.8, 8);
+                mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x000000 }));
+                // Face (Simplified for stability)
+                const fc = document.createElement('canvas'); fc.width=64; fc.height=64;
+                const cx = fc.getContext('2d'); cx.fillStyle='white'; cx.beginPath(); cx.arc(20,20,4,0,Math.PI*2); cx.fill(); cx.beginPath(); cx.arc(44,20,4,0,Math.PI*2); cx.fill(); cx.strokeStyle='white'; cx.lineWidth=4; cx.beginPath(); cx.arc(32,32,20,0,Math.PI); cx.stroke();
+                const fm = new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(fc), transparent:true, side:THREE.DoubleSide});
+                const f = new THREE.Mesh(new THREE.PlaneGeometry(0.5,0.5), fm); f.position.set(0,0.5,0.41); mesh.add(f);
+                speed = 3.5;
+            } else if (type === 'slasher') {
+                const g = new THREE.ConeGeometry(0.5, 2, 4);
+                mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: 0x550000 }));
+                speed = 2.0;
+            } else if (type === 'cat') {
+                const g = new THREE.BoxGeometry(0.6, 0.4, 0.8);
+                mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: 0x333333 }));
+                speed = 4.5;
+            } else if (type === 'octopus') {
+                const g = new THREE.SphereGeometry(0.6, 8, 8);
+                mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: 0x004400 }));
+                speed = 3.0;
+            }
+
+            mesh.position.set(px, 1.5, pz);
+            scene.add(mesh);
+            entities.push({ type, mesh, speed, state: 'idle' });
+        }
+
+        // --- Items ---
+        function updateHandItem() {
+            while(handGroup.children.length > 0) handGroup.remove(handGroup.children[0]);
+            const itemType = inventory[currentItemIdx];
+            itemUiName.innerText = itemType.toUpperCase();
+            if (itemType === 'water') itemUiCount.innerText = `x${itemCounts['water']}`;
+            else if (itemType === 'battery') itemUiCount.innerText = `x${itemCounts['battery']}`;
+            else itemUiCount.innerText = '';
+
+            let mesh;
+            if (itemType === 'flashlight') {
+                const g = new THREE.CylinderGeometry(0.03, 0.04, 0.2, 12); g.rotateX(-Math.PI/2);
+                mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({color:0x111111}));
+                const l = new THREE.SpotLight(0xffffff, 2.0, 50, 0.5, 0.5, 1); l.position.set(0,0,0); l.target.position.set(0,0,-1);
+                mesh.add(l); mesh.add(l.target);
+            } else if (itemType === 'radar') {
+                const g = new THREE.BoxGeometry(0.15, 0.02, 0.1); mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({color:0x333333}));
+                const sc = document.createElement('canvas'); sc.width=128; sc.height=64; radarContext = sc.getContext('2d'); radarTexture = new THREE.CanvasTexture(sc);
+                const s = new THREE.Mesh(new THREE.PlaneGeometry(0.13, 0.08), new THREE.MeshBasicMaterial({map:radarTexture}));
+                s.rotation.x = -Math.PI/2; s.position.y=0.011; mesh.add(s);
+            } else if (itemType === 'water') {
+                const g = new THREE.CylinderGeometry(0.04, 0.04, 0.15, 8); mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({color:0xffaa00}));
+            } else if (itemType === 'battery') {
+                const g = new THREE.BoxGeometry(0.05, 0.05, 0.1); mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({color:0x00ff00}));
+            }
+            if (mesh) handGroup.add(mesh);
+        }
+
+        function switchItem() { currentItemIdx = (currentItemIdx + 1) % inventory.length; updateHandItem(); }
+        
+        function useItem() {
+            const item = inventory[currentItemIdx];
+            if (item === 'water' && itemCounts['water'] > 0) {
+                itemCounts['water']--; hp = Math.min(hp+50, CONFIG.MAX_HP); sanity = Math.min(sanity+30, CONFIG.MAX_SANITY); stamina = 100;
+                showNotification("使用了杏仁水"); updateBars(); updateHandItem();
+            } else if (item === 'battery' && itemCounts['battery'] > 0) {
+                itemCounts['battery']--; battery = Math.min(battery+25, CONFIG.MAX_BATTERY);
+                showNotification("更換了電池 (+25%)"); updateBars(); updateHandItem();
+            }
+        }
+
+        // --- Networking ---
+        function startNetworking() {
+            const playersRef = collection(db, 'artifacts', appId, 'public', 'data', 'backrooms_players');
+            
+            const setupListener = () => {
+                unsubscribePlayers = onSnapshot(playersRef, (snapshot) => {
+                    document.getElementById('player-count').innerText = `ONLINE: ${snapshot.size}`;
+                    snapshot.docChanges().forEach((change) => {
+                        const pid = change.doc.id; if (pid === localUser.uid) return;
+                        if (change.type === 'added') {
+                            const m = new THREE.Mesh(new THREE.CapsuleGeometry(0.4,1,4,8), new THREE.MeshLambertMaterial({color:0x4488ff}));
+                            m.position.y=0.9; m.isPlayerRemote = true;
+                            const pl = new THREE.SpotLight(0xffffff,1,30,0.6,0.5,1); pl.position.set(0,0.5,0); pl.target.position.set(0,0.5,-1);
+                            m.add(pl); m.add(pl.target); m.userData={light:pl}; scene.add(m); remotePlayers[pid]=m;
+                        }
+                        if (change.type === 'modified') {
+                            const d = change.doc.data(); const m = remotePlayers[pid];
+                            if(m) { m.position.set(d.x,0.9,d.z); m.rotation.y=d.ry; m.userData.light.visible=d.light; }
+                        }
+                        if (change.type === 'removed') { const m = remotePlayers[pid]; if(m) { scene.remove(m); delete remotePlayers[pid]; } }
+                    });
+                }, (error) => {
+                    console.warn("Firestore snapshot error:", error);
+                    // Simple retry strategy: wait and reconnect
+                    if (unsubscribePlayers) unsubscribePlayers();
+                    setTimeout(setupListener, 2000);
+                });
+            };
+
+            setupListener();
+            
+            setInterval(pushLocalState, 100);
+            window.addEventListener('beforeunload', () => deleteDoc(doc(playersRef, localUser.uid)));
+        }
+        async function pushLocalState() {
+            if (!localUser || !camera) return;
+            const vec = new THREE.Vector3(); camera.getWorldDirection(vec);
+            const lv = (inventory[currentItemIdx] === 'flashlight' && isLightOn && battery > 0);
+            try { await setDoc(doc(collection(db, 'artifacts', appId, 'public', 'data', 'backrooms_players'), localUser.uid), { x: camera.position.x, z: camera.position.z, ry: Math.atan2(vec.x, vec.z)+Math.PI, light: lv, ts: serverTimestamp() }); } catch (e) {}
+        }
+
+        function safeRequestPointerLock() {
+            if (!document.body.requestPointerLock) return;
+            try { const p = document.body.requestPointerLock(); if (p) p.catch(e => console.warn(e)); } catch (e) {}
+        }
+
+        // --- Controls ---
+        function setupPCControls() {
+            document.body.requestPointerLock = document.body.requestPointerLock || document.body.mozRequestPointerLock;
+            document.body.onclick = () => { if(!controlsLocked && !isShopOpen && !isKeypadOpen && !isGameOver) safeRequestPointerLock(); else if(controlsLocked) useItem(); };
+            document.addEventListener('pointerlockchange', () => { controlsLocked = !!document.pointerLockElement; onLockChange(controlsLocked); });
+            document.addEventListener('mousemove', e => { if(controlsLocked) camera.rotation.y -= e.movementX * 0.002; });
+            document.addEventListener('keydown', e => {
+                if(e.code==='KeyW') moveForward=true; if(e.code==='KeyS') moveBackward=true;
+                if(e.code==='KeyA') moveLeft=true; if(e.code==='KeyD') moveRight=true;
+                if(e.code==='Space' && canJump) { velocity.y=12; canJump=false; }
+                if(e.code==='KeyQ') switchItem(); if(e.code==='KeyE') checkInteract();
+                if(e.code==='KeyF') isLightOn=!isLightOn;
+            });
+            document.addEventListener('keyup', e => { if(e.code==='KeyW') moveForward=false; if(e.code==='KeyS') moveBackward=false; if(e.code==='KeyA') moveLeft=false; if(e.code==='KeyD') moveRight=false; });
+        }
+        function setupMobileControls() {
+            const zone=document.getElementById('joystick-zone'); const knob=document.getElementById('joystick-knob'); const look=document.getElementById('look-zone');
+            let jId=null, lId=null, jOrigin={x:0,y:0}, lLast={x:0,y:0};
+            zone.addEventListener('touchstart', e=>{ e.preventDefault(); const t=e.changedTouches[0]; jId=t.identifier; const r=zone.getBoundingClientRect(); jOrigin={x:r.left+r.width/2, y:r.top+r.height/2}; updateJoy(t); }, {passive:false});
+            zone.addEventListener('touchmove', e=>{ e.preventDefault(); for(let i=0;i<e.changedTouches.length;i++) if(e.changedTouches[i].identifier===jId) updateJoy(e.changedTouches[i]); }, {passive:false});
+            zone.addEventListener('touchend', e=>{ e.preventDefault(); jId=null; joystickVector={x:0,y:0}; knob.style.transform=`translate(-50%,-50%)`; }, {passive:false});
+            function updateJoy(t) { let dx=t.clientX-jOrigin.x, dy=t.clientY-jOrigin.y; const d=Math.min(Math.sqrt(dx*dx+dy*dy), 40), a=Math.atan2(dy,dx); dx=Math.cos(a)*d; dy=Math.sin(a)*d; knob.style.transform=`translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`; joystickVector={x:dx/40, y:dy/40}; }
+            look.addEventListener('touchstart', e=>{ e.preventDefault(); lId=e.changedTouches[0].identifier; lLast={x:e.changedTouches[0].clientX, y:e.changedTouches[0].clientY}; }, {passive:false});
+            look.addEventListener('touchmove', e=>{ e.preventDefault(); for(let i=0;i<e.changedTouches.length;i++) if(e.changedTouches[i].identifier===lId) { const t=e.changedTouches[i]; camera.rotation.y-=(t.clientX-lLast.x)*0.005; lLast={x:t.clientX, y:t.clientY}; } }, {passive:false});
+            document.getElementById('btn-jump').addEventListener('touchstart', e=>{e.preventDefault(); if(canJump){velocity.y=12; canJump=false;}});
+            document.getElementById('btn-swap').addEventListener('touchstart', e=>{e.preventDefault(); switchItem();});
+            document.getElementById('btn-interact').addEventListener('touchstart', e=>{ e.preventDefault(); if(vendingGroup && camera.position.distanceTo(vendingGroup.position)<5) checkInteract(); else if(exitDoor && camera.position.distanceTo(exitDoor.position)<5) checkInteract(); else useItem(); });
+        }
+        function onLockChange(locked) {
+            if(locked || isMobile) { document.getElementById('start-screen').style.display='none'; document.getElementById('hud').style.display='block'; document.getElementById('item-ui').style.display='block'; }
+            else if (!isShopOpen && !isKeypadOpen && !isGameOver) { document.getElementById('start-screen').style.display='flex'; }
+        }
+
+        // --- Logic ---
+        function checkInteract() {
+            if(vendingGroup && camera.position.distanceTo(vendingGroup.position)<5) {
+                isShopOpen=true; if(!isMobile) document.exitPointerLock();
+                document.getElementById('shop-screen').style.display='block'; renderShop(); return;
+            }
+            if(exitDoor && camera.position.distanceTo(exitDoor.position)<5) {
+                isKeypadOpen=true; if(!isMobile) document.exitPointerLock();
+                document.getElementById('keypad-screen').style.display='block'; keypadInput=""; updateKeypad(); return;
+            }
+        }
+
+        document.querySelectorAll('.key-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const val = btn.innerText;
+                if (val === 'C') keypadInput = "";
+                else if (val === 'ENTER') {
+                    if (keypadInput === exitCode) {
+                        isKeypadOpen = false; document.getElementById('keypad-screen').style.display='none';
+                        currentLevel++; generateLevel(currentLevel); if(!isMobile) safeRequestPointerLock();
+                        showNotification("密碼正確!");
+                    } else { keypadInput = ""; showNotification("密碼錯誤!"); }
+                } else { if (keypadInput.length < 4) keypadInput += val; }
+                updateKeypad();
+            });
+        });
+        document.getElementById('close-keypad').onclick = () => { document.getElementById('keypad-screen').style.display='none'; isKeypadOpen=false; if(!isMobile) safeRequestPointerLock(); };
+        function updateKeypad() { keypadDisplay.innerText = keypadInput.padEnd(4, '-'); }
+
+        function renderShop() { const c=document.getElementById('shop-items-container'); c.innerHTML=''; const items = [{id:'water', name:'Almond Water', cost:5, action:()=>{itemCounts['water']=(itemCounts['water']||0)+1; if(!inventory.includes('water')) inventory.push('water');}}, {id:'battery', name:'Battery (電池)', cost:5, action:()=>{itemCounts['battery']=(itemCounts['battery']||0)+1; if(!inventory.includes('battery')) inventory.push('battery');}}, {id:'radar', name:'Radar', cost:10, action:()=>{if(!inventory.includes('radar')) inventory.push('radar');}}, {id:'stealth', name:'Stealth', cost:15, action:()=>{detectionRadius=8;}}]; items.forEach(i=>{ const d=document.createElement('div'); d.className='shop-item'; d.innerHTML=`<span>${i.name} ($${i.cost})</span><button>BUY</button>`; d.querySelector('button').onclick=()=>{if(score>=i.cost){score-=i.cost; i.action(); coinCounter.innerText=`COINS: ${score}`; updateHandItem(); renderShop();}}; c.appendChild(d); }); }
+        document.getElementById('close-shop').onclick = () => { document.getElementById('shop-screen').style.display='none'; isShopOpen=false; if(!isMobile) safeRequestPointerLock(); };
+        document.getElementById('restart-btn').onclick = () => { hp=CONFIG.MAX_HP; stamina=100; battery=100; sanity=100; isGameOver=false; score=0; currentLevel=0; document.getElementById('game-over-screen').style.display='none'; generateLevel(0); updateBars(); if(!isMobile) safeRequestPointerLock(); };
+
+        function updateBars() { 
+            hpBar.style.width = (hp/CONFIG.MAX_HP)*100 + '%'; 
+            sanityBar.style.width = sanity + '%';
+            batteryBar.style.width = battery + '%';
+            
+            if(hp<=15) { damageOverlay.style.animation='pulse-red 1s infinite'; damageOverlay.style.opacity=1; } 
+            else { damageOverlay.style.animation='none'; if(damageOverlay.style.opacity!=='0.8') damageOverlay.style.opacity=0; } 
+        }
+
+        function gameOver(reason) {
+            isGameOver = true;
+            deathReason.innerText = reason || "YOU DIED";
+            if(!isMobile) document.exitPointerLock();
+            document.getElementById('game-over-screen').style.display='flex';
+        }
+
+        function takeDamage(amt) { if(isGameOver)return; const now=performance.now(); if(now-lastDamageTime>1000){ hp-=amt; lastDamageTime=now; updateBars(); damageOverlay.style.opacity=0.8; setTimeout(()=>damageOverlay.style.opacity=0, 200); if(hp<=0) gameOver("你受了重傷而死"); } }
+        
+        // Better Collision Check with Margin
+        function checkCollision(pos) { 
+            if(!pos||isNaN(pos.x)) return true; 
+            const margin = 0.3; // Collision margin
+            const checkRadius = 0.4;
+            
+            // Check boundaries
+            const x=Math.floor(pos.x/CONFIG.CELL_SIZE), z=Math.floor(pos.z/CONFIG.CELL_SIZE);
+            if(x<0||x>=CONFIG.MAP_SIZE||z<0||z>=CONFIG.MAP_SIZE) return true; 
+            
+            // Check surrounding cells
+            const minX = Math.floor((pos.x - checkRadius) / CONFIG.CELL_SIZE);
+            const maxX = Math.floor((pos.x + checkRadius) / CONFIG.CELL_SIZE);
+            const minZ = Math.floor((pos.z - checkRadius) / CONFIG.CELL_SIZE);
+            const maxZ = Math.floor((pos.z + checkRadius) / CONFIG.CELL_SIZE);
+
+            for (let i = minX; i <= maxX; i++) {
+                for (let j = minZ; j <= maxZ; j++) {
+                    if (mapData[i] && mapData[i][j] === 1) {
+                         // AABB Collision with wall cell
+                         const wallMinX = i * CONFIG.CELL_SIZE - CONFIG.CELL_SIZE/2;
+                         const wallMaxX = i * CONFIG.CELL_SIZE + CONFIG.CELL_SIZE/2;
+                         const wallMinZ = j * CONFIG.CELL_SIZE - CONFIG.CELL_SIZE/2;
+                         const wallMaxZ = j * CONFIG.CELL_SIZE + CONFIG.CELL_SIZE/2;
+                         
+                         // Player is point for simplicity, check if point is inside expanded wall
+                         if (pos.x + checkRadius > wallMinX && pos.x - checkRadius < wallMaxX &&
+                             pos.z + checkRadius > wallMinZ && pos.z - checkRadius < wallMaxZ) {
+                             return true;
+                         }
+                    }
+                }
+            }
+            return false; 
+        }
+
+        // ADDED Save/Load Functions
+        function saveGame() { 
+            try {
+                const saveData = {
+                    level: currentLevel,
+                    score: score,
+                    hp: hp,
+                    stamina: stamina,
+                    battery: battery,
+                    sanity: sanity,
+                    inventory: inventory,
+                    itemCounts: itemCounts,
+                    detectionRadius: detectionRadius
+                };
+                localStorage.setItem('backrooms_save', JSON.stringify(saveData)); 
+                showNotification("遊戲已存檔");
+            } catch(e) {
+                showNotification("存檔失敗");
+            }
+        }
+
+        function loadGame() {
+            try {
+                const d = localStorage.getItem('backrooms_save');
+                if(!d) { showNotification("無存檔紀錄"); return; }
+                const data = JSON.parse(d); 
+                
+                currentLevel = data.level || 0; 
+                score = data.score || 0; 
+                hp = data.hp || CONFIG.MAX_HP;
+                stamina = data.stamina || 100;
+                battery = data.battery !== undefined ? data.battery : 100;
+                sanity = data.sanity !== undefined ? data.sanity : 100;
+                
+                if (data.inventory) inventory = data.inventory;
+                if (data.itemCounts) itemCounts = data.itemCounts;
+                if (data.detectionRadius) detectionRadius = data.detectionRadius;
+
+                coinCounter.innerText = `COINS: ${score}`; 
+                updateBars();
+                updateHandItem();
+
+                generateLevel(currentLevel); 
+                
+                isGameOver = false; 
+                if (!isMobile) safeRequestPointerLock(); 
+                
+                showNotification("存檔讀取成功");
+            } catch(e) { 
+                console.error(e);
+                showNotification("存檔讀取失敗"); 
+            }
+        }
+
+        function animate() {
+            try {
+                requestAnimationFrame(animate);
+                if (isGameOver) return;
+                const time = performance.now();
+                let dt = Math.min((time - prevTime) / 1000, 0.1);
+                prevTime = time;
+                if(isNaN(camera.position.x)) { camera.position.set(2*CONFIG.CELL_SIZE, 1.6, 2*CONFIG.CELL_SIZE); velocity.set(0,0,0); }
+                
+                // --- METERS UPDATE ---
+                // Flashlight Battery
+                if (inventory[currentItemIdx] === 'flashlight' && isLightOn && battery > 0) {
+                    battery -= 2 * dt; // Drain speed
+                    if (battery <= 0) { battery = 0; isLightOn = false; showNotification("手電筒沒電了!"); }
+                }
+
+                // Sanity Drain
+                if (hp <= 15 && sanity > 0) {
+                    sanity -= 5 * dt; // Fast drain when critical
+                    if (sanity <= 0) {
+                         gameOver("你的理智崩潰了...");
+                         return;
+                    }
+                }
+                updateBars();
+
+                if(isShopOpen || isKeypadOpen) { renderer.render(scene, camera); return; }
+                if(!controlsLocked && !isMobile) { renderer.render(scene, camera); return; }
+
+                // Radar
+                if(inventory[currentItemIdx]==='radar' && radarContext) {
+                    radarContext.fillStyle='#003300'; radarContext.fillRect(0,0,128,64); radarContext.fillStyle='#00ff00'; radarContext.font='20px monospace'; radarContext.fillText('DIST:',10,30);
+                    if(exitDoor) { const d=Math.floor(camera.position.distanceTo(exitDoor.position)); radarContext.fillText(`${d}m`,60,30); radarUi.innerText=`RADAR: ${d}m`; radarUi.style.display='block'; } 
+                    else { radarContext.fillText(`---`,60,30); radarUi.style.display='none'; }
+                    radarTexture.needsUpdate=true;
+                } else { radarUi.style.display='none'; }
+
+                // Physics
+                velocity.x -= velocity.x * 10.0 * dt; velocity.z -= velocity.z * 10.0 * dt; velocity.y -= 30.0 * dt;
+                let inputZ=0, inputX=0;
+                if(moveForward) inputZ-=1; if(moveBackward) inputZ+=1; inputZ+=joystickVector.y;
+                if(moveRight) inputX+=1; if(moveLeft) inputX-=1; inputX+=joystickVector.x;
+                direction.z=inputZ; direction.x=inputX; if(direction.length()>1) direction.normalize();
+                
+                const isRun=(moveForward||moveBackward||moveLeft||moveRight||joystickVector.x||joystickVector.y)&&stamina>0;
+                if(isRun) stamina=Math.max(0, stamina-CONFIG.STAMINA_DRAIN*dt); else stamina=Math.min(100, stamina+CONFIG.STAMINA_REGEN*dt);
+                document.getElementById('stamina-fill').style.width=stamina+'%';
+                
+                if(direction.z!==0||direction.x!==0) { velocity.z-=direction.z*40.0*dt; velocity.x-=direction.x*40.0*dt; }
+                const speed=isRun?CONFIG.RUN_SPEED:CONFIG.MOVE_SPEED;
+                const mx=-velocity.x*dt*(speed/CONFIG.MOVE_SPEED), mz=-velocity.z*dt*(speed/CONFIG.MOVE_SPEED);
+                
+                camera.translateX(mx); if(checkCollision(camera.position)) camera.translateX(-mx);
+                camera.translateZ(mz); if(checkCollision(camera.position)) camera.translateZ(-mz);
+                camera.position.y+=velocity.y*dt; if(camera.position.y<CONFIG.PLAYER_HEIGHT) { velocity.y=0; camera.position.y=CONFIG.PLAYER_HEIGHT; canJump=true; }
+
+                // Hand Sway
+                if(direction.lengthSq()>0.1) { handGroup.position.y=-0.4+Math.sin(time*0.012)*0.03; handGroup.position.x=0.3+Math.cos(time*0.012)*0.03; }
+                else { handGroup.position.y=-0.4+Math.sin(time*0.003)*0.005; }
+
+                // --- ENTITY AI ---
+                entities.forEach(ent => {
+                    const dist = ent.mesh.position.distanceTo(camera.position);
+                    
+                    // Cat Attach Logic
+                    if (ent.type === 'cat' && ent.state === 'attached') {
+                        catOverlay.style.display = 'block';
+                        takeDamage(0.5 * dt); 
+                        if (inventory[currentItemIdx] === 'flashlight' && isLightOn && battery > 0) {
+                            ent.state = 'fleeing';
+                            catOverlay.style.display = 'none';
+                        }
+                        return; 
+                    } else if (ent.type === 'cat') {
+                        catOverlay.style.display = 'none';
+                    }
+
+                    // Slasher Charge
+                    let currentSpeed = ent.speed;
+                    if (ent.type === 'slasher' && dist < 20) currentSpeed *= 3; 
+
+                    // Octopus Pull
+                    if (ent.type === 'octopus' && dist < 20 && dist > 5) {
+                        const pullDir = new THREE.Vector3().subVectors(ent.mesh.position, camera.position).normalize();
+                        const pullVec = pullDir.multiplyScalar(5 * dt);
+                        camera.position.add(pullVec);
+                         if(checkCollision(camera.position)) camera.position.sub(pullVec); // Don't pull into wall
+                    }
+
+                    // Flashlight Flee
+                    let scared = false;
+                    if (inventory[currentItemIdx] === 'flashlight' && isLightOn && battery > 0) {
+                        const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+                        const toEnt = new THREE.Vector3().subVectors(ent.mesh.position, camera.position).normalize();
+                        if (dir.dot(toEnt) > 0.8 && dist < 20) scared = true;
+                    }
+
+                    if (scared) {
+                        ent.mesh.lookAt(camera.position);
+                        ent.mesh.translateZ(-4.0 * dt);
+                        ent.mesh.rotation.z = Math.sin(time*20)*0.2;
+                    } else if (dist < detectionRadius) {
+                        ent.mesh.lookAt(camera.position);
+                        ent.mesh.rotation.z = 0;
+                        ent.mesh.translateZ(currentSpeed * dt);
+                    }
+
+                    // Attacks
+                    if (dist < 1.5) {
+                        if (ent.type === 'cat' && ent.state !== 'attached') ent.state = 'attached';
+                        else if (ent.type === 'slasher') takeDamage(10);
+                        else if (ent.type === 'octopus') takeDamage(10); 
+                        else if (ent.type === 'smiler') takeDamage(5);
+                    }
+                });
+
+                // Coins
+                for(let i=coins.length-1; i>=0; i--) { if(camera.position.distanceTo(coins[i].position)<2.5) { scene.remove(coins[i]); coins.splice(i,1); score++; coinCounter.innerText=`COINS: ${score}`; showNotification("獲得金幣!"); } }
+                
+                // Interact Prompts
+                if((vendingGroup&&camera.position.distanceTo(vendingGroup.position)<5) || (exitDoor&&camera.position.distanceTo(exitDoor.position)<5)) document.getElementById('interact-prompt').style.display='block'; else document.getElementById('interact-prompt').style.display='none';
+
+                renderer.render(scene, camera);
+            } catch (e) { controls.unlock(); }
+        }
+
+        window.addEventListener('resize', () => { if(camera){ camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); } });
+    </script>
+</body>
+</html>
